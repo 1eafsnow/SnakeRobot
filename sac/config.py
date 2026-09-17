@@ -83,13 +83,13 @@ class EnvConfig:
     hfield_base_z: float = -10.0
     hfield_radius_x: float = 2.5
     hfield_radius_y: float = 2.5
-    obstacle_max_supported_height: float = 0.15
+    obstacle_max_supported_height: float = 0.18
     hfield_base_depth: float = 0.10
-    obstacle_min_height: float = 0.025
-    obstacle_height_limit: float = 0.12
+    obstacle_min_height: float = 0.10
+    obstacle_height_limit: float = 0.17
     obstacle_distance_range: Tuple[float, float] = (1.05, 1.35)
-    obstacle_ramp_length_range: Tuple[float, float] = (0.35, 0.55)
-    obstacle_platform_length_range: Tuple[float, float] = (0.25, 0.45)
+    obstacle_ramp_length_range: Tuple[float, float] = (0.05, 0.08)
+    obstacle_platform_length_range: Tuple[float, float] = (0.16, 0.24)
     goal_after_obstacle_range: Tuple[float, float] = (1.00, 1.35)
     goal_lateral_range: Tuple[float, float] = (-0.08, 0.08)
     goal_radius: float = 0.30
@@ -148,11 +148,11 @@ class TrainConfig:
     log_updates_every: int = 5_000
     warmup_action_limit: float = 0.50
     obstacle_height_curriculum: Tuple[Tuple[int, float], ...] = (
-        (0, 0.040),
-        (250_000, 0.055),
-        (600_000, 0.075),
-        (1_000_000, 0.095),
-        (1_500_000, 0.120),
+        (0, 0.110),
+        (250_000, 0.125),
+        (600_000, 0.140),
+        (1_000_000, 0.155),
+        (1_500_000, 0.170),
     )
 
 
