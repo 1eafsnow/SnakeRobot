@@ -1,5 +1,5 @@
-sac/checkpoints/
-sac/logs/
+**/checkpoints/
+**/logs/
 
 # Python cache
 __pycache__/
