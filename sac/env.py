@@ -122,6 +122,7 @@ class SnakeTraverseEnv(gym.Env):
         self.stage_base = False
         self.stage_back_track = False
         self.obstacle_cleared = False
+        self.previous_front_lift_quality = 0.0
 
         lidar_dim = config.lidar_rows * config.lidar_cols
         self.observation_dim = lidar_dim + 30
@@ -334,6 +335,17 @@ class SnakeTraverseEnv(gym.Env):
         arrays = (self.data.qpos, self.data.qvel, self.data.qacc, self.data.ctrl, self.track_omega, self.track_angle)
         return bool(all(np.isfinite(array).all() for array in arrays))
 
+    def _geom_bottom_z(self, geom_id: int) -> float:
+        geom_id = int(geom_id)
+        rotation = self.data.geom_xmat[geom_id].reshape(3, 3)
+        half_extent_z = float(np.dot(np.abs(rotation[2, :]), self.model.geom_size[geom_id]))
+        return float(self.data.geom_xpos[geom_id, 2] - half_extent_z)
+
+    def _front_tip_state(self) -> Tuple[float, float]:
+        front_tip_geom_id = int(self.front_track_pad_ids[0])
+        progress = self._course_progress(self.data.geom_xpos[front_tip_geom_id, :2])
+        return float(progress), self._geom_bottom_z(front_tip_geom_id)
+
     def _align_support_with_ground(self) -> None:
         mujoco.mj_forward(self.model, self.data)
         lowest = np.inf
@@ -399,10 +411,11 @@ class SnakeTraverseEnv(gym.Env):
 
     def _update_stage_flags(self) -> Dict[str, float]:
         rewards = {"front_stage": 0.0, "base_stage": 0.0, "rear_stage": 0.0, "clear_stage": 0.0}
-        front_progress = self._course_progress(self.data.xpos[self.front_track_body_id, :2])
+        front_tip_progress, front_tip_z = self._front_tip_state()
         base_progress = self._course_progress(self.data.xpos[self.base_id, :2])
         rear_progress = self._course_progress(self.data.xpos[self.back_track_body_id, :2])
-        if not self.stage_front_track and front_progress >= self.obstacle_top_start_progress:
+        front_stage_min_z = self.obstacle_height - self.cfg.front_stage_height_margin
+        if not self.stage_front_track and front_tip_progress >= self.obstacle_top_start_progress and front_tip_z >= front_stage_min_z:
             self.stage_front_track = True
             rewards["front_stage"] = self.reward_cfg.front_track_stage_reward
         if not self.stage_base and base_progress >= self.obstacle_top_start_progress:
@@ -440,8 +453,22 @@ class SnakeTraverseEnv(gym.Env):
         joint_velocity_penalty = float(np.mean((state["dq"] / self.cfg.joint_velocity_scale) ** 2))
         joint_torque_penalty = float(mean_joint_torque_sq / max(float(np.mean(self.ctrl_upper ** 2)), 1e-6))
         track_torque_penalty = float(mean_track_torque_sq / max(self.cfg.track_torque_limit ** 2, 1e-6))
-        reward = cfg.progress_weight * progress_delta + cfg.heading_weight * heading_reward + cfg.forward_speed_weight * forward_speed + stage_rewards["front_stage"] + stage_rewards["base_stage"] + stage_rewards["rear_stage"] + stage_rewards["clear_stage"] - cfg.stall_weight * stall_penalty - cfg.reverse_weight * reverse_penalty - cfg.lateral_drift_weight * lateral_penalty - cfg.action_rate_weight * action_rate_penalty - cfg.action_acceleration_weight * action_acceleration_penalty - cfg.joint_pose_weight * joint_pose_penalty - cfg.joint_velocity_weight * joint_velocity_penalty - cfg.joint_torque_weight * joint_torque_penalty - cfg.track_torque_weight * track_torque_penalty - cfg.time_penalty
-        terms = {"total": float(reward), "progress": progress_delta, "heading": float(heading_reward), "forward_speed": forward_speed, "front_stage_reward": stage_rewards["front_stage"], "base_stage_reward": stage_rewards["base_stage"], "rear_stage_reward": stage_rewards["rear_stage"], "clear_stage_reward": stage_rewards["clear_stage"], "stall_penalty": stall_penalty, "reverse_penalty": reverse_penalty, "lateral_penalty": lateral_penalty, "action_rate_penalty": action_rate_penalty, "action_acceleration_penalty": action_acceleration_penalty, "joint_pose_penalty": joint_pose_penalty, "joint_velocity_penalty": joint_velocity_penalty, "joint_torque_penalty": joint_torque_penalty, "track_torque_penalty": track_torque_penalty, "goal_distance": float(state["goal_distance"]), "obstacle_height": self.obstacle_height, "obstacle_contact_count": float(self._get_obstacle_contact_count())}
+        front_tip_progress, front_tip_z = self._front_tip_state()
+        distance_to_obstacle = self.obstacle_start_progress - front_tip_progress
+        lift_window = not self.stage_front_track and -0.03 <= distance_to_obstacle <= self.cfg.front_lift_approach_distance
+        lift_target_z = self.obstacle_height + self.cfg.front_lift_target_margin
+        if lift_window:
+            lift_denominator = max(lift_target_z - self.cfg.initial_ground_clearance, 1e-6)
+            front_lift_quality = float(np.clip((front_tip_z - self.cfg.initial_ground_clearance) / lift_denominator, 0.0, 1.0))
+            front_lift_delta = front_lift_quality - self.previous_front_lift_quality
+            self.previous_front_lift_quality = front_lift_quality
+        else:
+            front_lift_quality = 0.0
+            front_lift_delta = 0.0
+            self.previous_front_lift_quality = 0.0
+        front_lift_reward = cfg.front_lift_weight * front_lift_delta
+        reward = cfg.progress_weight * progress_delta + cfg.heading_weight * heading_reward + cfg.forward_speed_weight * forward_speed + front_lift_reward + stage_rewards["front_stage"] + stage_rewards["base_stage"] + stage_rewards["rear_stage"] + stage_rewards["clear_stage"] - cfg.stall_weight * stall_penalty - cfg.reverse_weight * reverse_penalty - cfg.lateral_drift_weight * lateral_penalty - cfg.action_rate_weight * action_rate_penalty - cfg.action_acceleration_weight * action_acceleration_penalty - cfg.joint_pose_weight * joint_pose_penalty - cfg.joint_velocity_weight * joint_velocity_penalty - cfg.joint_torque_weight * joint_torque_penalty - cfg.track_torque_weight * track_torque_penalty - cfg.time_penalty
+        terms = {"total": float(reward), "progress": progress_delta, "heading": float(heading_reward), "forward_speed": forward_speed, "front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle), "front_stage_reward": stage_rewards["front_stage"], "base_stage_reward": stage_rewards["base_stage"], "rear_stage_reward": stage_rewards["rear_stage"], "clear_stage_reward": stage_rewards["clear_stage"], "stall_penalty": stall_penalty, "reverse_penalty": reverse_penalty, "lateral_penalty": lateral_penalty, "action_rate_penalty": action_rate_penalty, "action_acceleration_penalty": action_acceleration_penalty, "joint_pose_penalty": joint_pose_penalty, "joint_velocity_penalty": joint_velocity_penalty, "joint_torque_penalty": joint_torque_penalty, "track_torque_penalty": track_torque_penalty, "goal_distance": float(state["goal_distance"]), "obstacle_height": self.obstacle_height, "obstacle_contact_count": float(self._get_obstacle_contact_count())}
         return float(reward), terms
 
     def _check_termination(self, state: Dict[str, np.ndarray]) -> Tuple[bool, bool, str]:
@@ -498,6 +525,7 @@ class SnakeTraverseEnv(gym.Env):
         self.stage_base = False
         self.stage_back_track = False
         self.obstacle_cleared = False
+        self.previous_front_lift_quality = 0.0
         state = self._get_robot_state()
         self.previous_goal_distance = float(state["goal_distance"])
         self.previous_course_progress = float(state["course_progress"])

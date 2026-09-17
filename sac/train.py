@@ -149,6 +149,7 @@ def main() -> None:
     episode_reward_terms = defaultdict(float)
     last_metrics = None
     last_step = start_step
+    warmup_action = np.zeros(cfg.action_dim, dtype=np.float32)
 
     try:
         for step in range(start_step + 1, cfg.total_steps + 1):
@@ -156,7 +157,9 @@ def main() -> None:
             collected_steps = step - start_step
             if start_step == 0 and collected_steps <= cfg.start_steps:
                 limit = TRAIN_CONFIG.warmup_action_limit
-                action = np.random.uniform(-limit, limit, cfg.action_dim).astype(np.float32)
+                if collected_steps == 1 or (collected_steps - 1) % TRAIN_CONFIG.warmup_hold_steps == 0:
+                    warmup_action = np.random.uniform(-limit, limit, cfg.action_dim).astype(np.float32)
+                action = warmup_action.copy()
             else:
                 action = agent.select_action(obs, deterministic=False)
 

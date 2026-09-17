@@ -20,6 +20,7 @@ class RewardConfig:
     base_stage_reward: float = 3.0
     rear_track_stage_reward: float = 4.0
     obstacle_clear_reward: float = 8.0
+    front_lift_weight: float = 3.0
     stall_weight: float = 0.18
     reverse_weight: float = 1.5
     lateral_drift_weight: float = 0.10
@@ -54,7 +55,7 @@ class EnvConfig:
     q_nominal: Tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
     kp: Tuple[float, ...] = (20.0, 20.0, 20.0, 20.0)
     kd: Tuple[float, ...] = (5.0, 5.0, 5.0, 5.0)
-    joint_action_scale: Tuple[float, ...] = (1.10, 1.10, 1.10, 1.10)
+    joint_action_scale: Tuple[float, ...] = (1.40, 0.35, 1.40, 0.35)
     joint_limit_margin: float = 0.10
     frame_skip: int = 20
     max_episode_steps: int = 750
@@ -65,7 +66,7 @@ class EnvConfig:
     track_motor_damping: float = 0.20
     track_kd: float = 8.0
     track_torque_limit: float = 36.0
-    track_speed_center: float = 4.0
+    track_speed_center: float = 3.0
     track_speed_scale: float = 6.0
     track_speed_limit: float = 15.0
     lidar_rows: int = 4
@@ -94,6 +95,9 @@ class EnvConfig:
     goal_lateral_range: Tuple[float, float] = (-0.08, 0.08)
     goal_radius: float = 0.30
     obstacle_clear_margin: float = 0.10
+    front_lift_approach_distance: float = 0.45
+    front_lift_target_margin: float = 0.02
+    front_stage_height_margin: float = 0.015
     initial_ground_clearance: float = 0.003
     initial_yaw_noise_deg: float = 3.0
     joint_position_noise: float = 0.02
@@ -146,7 +150,8 @@ class TrainConfig:
     eval_every: int = 50_000
     eval_episodes: int = 8
     log_updates_every: int = 5_000
-    warmup_action_limit: float = 0.50
+    warmup_action_limit: float = 1.00
+    warmup_hold_steps: int = 25
     obstacle_height_curriculum: Tuple[Tuple[int, float], ...] = (
         (0, 0.110),
         (250_000, 0.125),
