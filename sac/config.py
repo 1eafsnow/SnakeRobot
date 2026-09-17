@@ -101,6 +101,7 @@ class EnvConfig:
     front_lift_approach_distance: float = 0.45
     front_lift_target_margin: float = 0.02
     front_stage_height_margin: float = 0.015
+    privileged_obstacle_distance_scale: float = 1.0
     initial_ground_clearance: float = 0.003
     initial_yaw_noise_deg: float = 3.0
     joint_position_noise: float = 0.02
@@ -122,7 +123,7 @@ class EnvConfig:
 
 @dataclass(frozen=True)
 class SACConfig:
-    obs_dim: int = 510
+    obs_dim: int = 520
     action_dim: int = 6
     hidden_dims: Tuple[int, ...] = (512, 512)
     gamma: float = 0.995
