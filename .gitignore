@@ -1,0 +1,6 @@
+sac/checkpoints/
+sac/logs/
+
+# Python cache
+__pycache__/
+*.py[cod]
