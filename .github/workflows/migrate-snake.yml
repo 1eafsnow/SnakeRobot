@@ -1,0 +1,63 @@
+name: One-time snake project migration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/migrate-snake.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.event.head_commit.message == 'Add one-time snake migration workflow'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SnakeRobot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Copy snake project from ReinforcementLearning
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tmp_dir="$(mktemp -d)"
+          git clone --depth 1 https://github.com/1eafsnow/ReinforcementLearning.git "$tmp_dir/ReinforcementLearning"
+
+          rm -rf description sac
+          cp -a "$tmp_dir/ReinforcementLearning/snake_description" description
+          cp -a "$tmp_dir/ReinforcementLearning/snake_control" sac
+
+          python - <<'PY'
+          from pathlib import Path
+
+          text_suffixes = {".py", ".md", ".txt", ".xml", ".yaml", ".yml", ".json", ".sh"}
+          for path in Path("sac").rglob("*"):
+              if not path.is_file() or path.suffix.lower() not in text_suffixes:
+                  continue
+              text = path.read_text(encoding="utf-8")
+              updated = text.replace("snake_description", "description").replace("snake_control", "sac")
+              if updated != text:
+                  path.write_text(updated, encoding="utf-8")
+          PY
+
+          cat > .gitignore <<'EOF'
+          **/checkpoints/
+          **/logs/
+
+          # Python cache
+          __pycache__/
+          *.py[cod]
+          EOF
+
+          rm -f .github/workflows/migrate-snake.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Split snake project into standalone repository"
+          git push origin HEAD:main
