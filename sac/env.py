@@ -71,6 +71,7 @@ class SnakeTraverseEnv(gym.Env):
         self.front_track_pad_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.front_track_pad_names], dtype=np.int32)
         self.back_track_pad_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.back_track_pad_names], dtype=np.int32)
         self.support_geom_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.support_geom_names], dtype=np.int32)
+        self.allowed_obstacle_contact_geom_ids = frozenset(int(value) for value in self.support_geom_ids)
 
         self.model.geom_group[self.floor_geom_id] = int(config.floor_lidar_group)
         self.model.geom_group[self.obstacle_geom_id] = int(config.lidar_group)
@@ -437,7 +438,27 @@ class SnakeTraverseEnv(gym.Env):
                 count += 1
         return count
 
-    def _compute_reward(self, state: Dict[str, np.ndarray], stage_rewards: Dict[str, float], mean_joint_torque_sq: float, mean_track_torque_sq: float, old_filtered_action: np.ndarray, older_filtered_action: np.ndarray) -> Tuple[float, Dict[str, float]]:
+    def _measure_body_obstacle_contact(self) -> Tuple[int, float]:
+        contact_count = 0
+        total_force = 0.0
+        contact_force = np.zeros(6, dtype=np.float64)
+        for contact_index in range(self.data.ncon):
+            contact = self.data.contact[contact_index]
+            geom1, geom2 = int(contact.geom1), int(contact.geom2)
+            if geom1 == self.obstacle_geom_id:
+                other_geom = geom2
+            elif geom2 == self.obstacle_geom_id:
+                other_geom = geom1
+            else:
+                continue
+            if other_geom in self.allowed_obstacle_contact_geom_ids or int(contact.efc_address) < 0:
+                continue
+            mujoco.mj_contactForce(self.model, self.data, contact_index, contact_force)
+            contact_count += 1
+            total_force += float(np.linalg.norm(contact_force[:3]))
+        return contact_count, total_force
+
+    def _compute_reward(self, state: Dict[str, np.ndarray], stage_rewards: Dict[str, float], mean_joint_torque_sq: float, mean_track_torque_sq: float, mean_body_obstacle_contact_count: float, mean_body_obstacle_force: float, old_filtered_action: np.ndarray, older_filtered_action: np.ndarray) -> Tuple[float, Dict[str, float]]:
         cfg = self.reward_cfg
         course_progress = float(state["course_progress"])
         progress_delta = float(np.clip(course_progress - self.previous_course_progress, -0.12, 0.12))
@@ -467,8 +488,10 @@ class SnakeTraverseEnv(gym.Env):
             front_lift_delta = 0.0
             self.previous_front_lift_quality = 0.0
         front_lift_reward = cfg.front_lift_weight * front_lift_delta
-        reward = cfg.progress_weight * progress_delta + cfg.heading_weight * heading_reward + cfg.forward_speed_weight * forward_speed + front_lift_reward + stage_rewards["front_stage"] + stage_rewards["base_stage"] + stage_rewards["rear_stage"] + stage_rewards["clear_stage"] - cfg.stall_weight * stall_penalty - cfg.reverse_weight * reverse_penalty - cfg.lateral_drift_weight * lateral_penalty - cfg.action_rate_weight * action_rate_penalty - cfg.action_acceleration_weight * action_acceleration_penalty - cfg.joint_pose_weight * joint_pose_penalty - cfg.joint_velocity_weight * joint_velocity_penalty - cfg.joint_torque_weight * joint_torque_penalty - cfg.track_torque_weight * track_torque_penalty - cfg.time_penalty
-        terms = {"total": float(reward), "progress": progress_delta, "heading": float(heading_reward), "forward_speed": forward_speed, "front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle), "front_stage_reward": stage_rewards["front_stage"], "base_stage_reward": stage_rewards["base_stage"], "rear_stage_reward": stage_rewards["rear_stage"], "clear_stage_reward": stage_rewards["clear_stage"], "stall_penalty": stall_penalty, "reverse_penalty": reverse_penalty, "lateral_penalty": lateral_penalty, "action_rate_penalty": action_rate_penalty, "action_acceleration_penalty": action_acceleration_penalty, "joint_pose_penalty": joint_pose_penalty, "joint_velocity_penalty": joint_velocity_penalty, "joint_torque_penalty": joint_torque_penalty, "track_torque_penalty": track_torque_penalty, "goal_distance": float(state["goal_distance"]), "obstacle_height": self.obstacle_height, "obstacle_contact_count": float(self._get_obstacle_contact_count())}
+        body_obstacle_contact_penalty = float(mean_body_obstacle_contact_count)
+        body_obstacle_force_penalty = float(mean_body_obstacle_force / max(cfg.body_obstacle_force_scale, 1e-6))
+        reward = cfg.progress_weight * progress_delta + cfg.heading_weight * heading_reward + cfg.forward_speed_weight * forward_speed + front_lift_reward + stage_rewards["front_stage"] + stage_rewards["base_stage"] + stage_rewards["rear_stage"] + stage_rewards["clear_stage"] - cfg.body_obstacle_contact_weight * body_obstacle_contact_penalty - cfg.body_obstacle_force_weight * body_obstacle_force_penalty - cfg.stall_weight * stall_penalty - cfg.reverse_weight * reverse_penalty - cfg.lateral_drift_weight * lateral_penalty - cfg.action_rate_weight * action_rate_penalty - cfg.action_acceleration_weight * action_acceleration_penalty - cfg.joint_pose_weight * joint_pose_penalty - cfg.joint_velocity_weight * joint_velocity_penalty - cfg.joint_torque_weight * joint_torque_penalty - cfg.track_torque_weight * track_torque_penalty - cfg.time_penalty
+        terms = {"total": float(reward), "progress": progress_delta, "heading": float(heading_reward), "forward_speed": forward_speed, "front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle), "body_obstacle_contact_penalty": body_obstacle_contact_penalty, "body_obstacle_force_penalty": body_obstacle_force_penalty, "body_obstacle_contact_count": float(mean_body_obstacle_contact_count), "body_obstacle_force": float(mean_body_obstacle_force), "front_stage_reward": stage_rewards["front_stage"], "base_stage_reward": stage_rewards["base_stage"], "rear_stage_reward": stage_rewards["rear_stage"], "clear_stage_reward": stage_rewards["clear_stage"], "stall_penalty": stall_penalty, "reverse_penalty": reverse_penalty, "lateral_penalty": lateral_penalty, "action_rate_penalty": action_rate_penalty, "action_acceleration_penalty": action_acceleration_penalty, "joint_pose_penalty": joint_pose_penalty, "joint_velocity_penalty": joint_velocity_penalty, "joint_torque_penalty": joint_torque_penalty, "track_torque_penalty": track_torque_penalty, "goal_distance": float(state["goal_distance"]), "obstacle_height": self.obstacle_height, "obstacle_contact_count": float(self._get_obstacle_contact_count())}
         return float(reward), terms
 
     def _check_termination(self, state: Dict[str, np.ndarray]) -> Tuple[bool, bool, str]:
@@ -560,6 +583,8 @@ class SnakeTraverseEnv(gym.Env):
         track_torque = np.zeros(2, dtype=np.float64)
         joint_torque_sq_sum = 0.0
         track_torque_sq_sum = 0.0
+        body_obstacle_contact_count_sum = 0.0
+        body_obstacle_force_sum = 0.0
         invalid_state = False
         executed_steps = 0
         for substep in range(self.frame_skip):
@@ -573,6 +598,9 @@ class SnakeTraverseEnv(gym.Env):
             joint_torque_sq_sum += float(np.mean(joint_torque ** 2))
             track_torque_sq_sum += float(np.mean(track_torque ** 2))
             mujoco.mj_step(self.model, self.data)
+            body_contact_count, body_contact_force = self._measure_body_obstacle_contact()
+            body_obstacle_contact_count_sum += body_contact_count
+            body_obstacle_force_sum += body_contact_force
             executed_steps += 1
             if not self._physics_is_finite():
                 invalid_state = True
@@ -593,7 +621,9 @@ class SnakeTraverseEnv(gym.Env):
         stage_rewards = self._update_stage_flags()
         mean_joint_torque_sq = joint_torque_sq_sum / max(executed_steps, 1)
         mean_track_torque_sq = track_torque_sq_sum / max(executed_steps, 1)
-        reward, reward_terms = self._compute_reward(state, stage_rewards, mean_joint_torque_sq, mean_track_torque_sq, old_filtered_action, older_filtered_action)
+        mean_body_obstacle_contact_count = body_obstacle_contact_count_sum / max(executed_steps, 1)
+        mean_body_obstacle_force = body_obstacle_force_sum / max(executed_steps, 1)
+        reward, reward_terms = self._compute_reward(state, stage_rewards, mean_joint_torque_sq, mean_track_torque_sq, mean_body_obstacle_contact_count, mean_body_obstacle_force, old_filtered_action, older_filtered_action)
         terminated, success, termination_reason = self._check_termination(state)
         if success:
             reward += self.reward_cfg.success_reward

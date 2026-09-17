@@ -21,6 +21,9 @@ class RewardConfig:
     rear_track_stage_reward: float = 4.0
     obstacle_clear_reward: float = 8.0
     front_lift_weight: float = 3.0
+    body_obstacle_contact_weight: float = 0.35
+    body_obstacle_force_weight: float = 1.25
+    body_obstacle_force_scale: float = 40.0
     stall_weight: float = 0.18
     reverse_weight: float = 1.5
     lateral_drift_weight: float = 0.10

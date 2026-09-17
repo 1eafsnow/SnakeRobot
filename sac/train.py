@@ -199,6 +199,8 @@ def main() -> None:
                     "mean_progress_reward": episode_reward_terms["progress"] / max(episode_length, 1),
                     "mean_stall_penalty": episode_reward_terms["stall_penalty"] / max(episode_length, 1),
                     "mean_reverse_penalty": episode_reward_terms["reverse_penalty"] / max(episode_length, 1),
+                    "mean_body_obstacle_contact_count": episode_reward_terms["body_obstacle_contact_count"] / max(episode_length, 1),
+                    "mean_body_obstacle_force": episode_reward_terms["body_obstacle_force"] / max(episode_length, 1),
                 }
                 append_csv(EPISODE_LOG_PATH, row)
                 print(f"Episode {episode:5d} | Step {step:8d} | Reward {episode_reward:9.3f} | Height {row['obstacle_height']:.3f} m | Front/Base/Rear/Clear {row['front_track_stage']}/{row['base_stage']}/{row['back_track_stage']}/{row['obstacle_cleared']} | Success {row['success']} | Length {episode_length:4d} | {row['termination_reason']}")
