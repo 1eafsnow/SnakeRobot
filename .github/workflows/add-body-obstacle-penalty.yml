@@ -1,0 +1,122 @@
+name: Add body obstacle contact penalty
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/add-body-obstacle-penalty.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply body obstacle contact penalty
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import py_compile
+          import xml.etree.ElementTree as ET
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one match, found {count}: {old!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 1) Make base_link_pad an obstacle-capable support geom, like the track pads.
+          replace_once(
+              'description/mjcf/snake_robot_tracks_slider.xml',
+              '<geom name="base_link_pad" type="box" pos="0.125 0.0 -0.1" size="0.060 0.060 0.010" rgba="0 0 1 0.25" density="0" friction="0.05 0 0" condim="3" contype="0" conaffinity="0" group="3"/>',
+              '<geom name="base_link_pad" type="box" pos="0.125 0.0 -0.1" size="0.060 0.060 0.010" rgba="0 0 1 0.25" density="0" friction="0.05 0 0" condim="3" contype="2" conaffinity="2" group="3"/>'
+          )
+
+          # 2) Reward configuration: persistent/high-force body contacts should be expensive.
+          replace_once(
+              'sac/config.py',
+              '    front_lift_weight: float = 3.0\n    stall_weight: float = 0.18\n',
+              '    front_lift_weight: float = 3.0\n    body_obstacle_contact_weight: float = 0.35\n    body_obstacle_force_weight: float = 1.25\n    body_obstacle_force_scale: float = 40.0\n    stall_weight: float = 0.18\n'
+          )
+
+          # 3) Only support geoms (base_link_pad + six track pads) are allowed to touch the obstacle without penalty.
+          replace_once(
+              'sac/env.py',
+              '        self.support_geom_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.support_geom_names], dtype=np.int32)\n\n        self.model.geom_group[self.floor_geom_id] = int(config.floor_lidar_group)\n',
+              '        self.support_geom_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.support_geom_names], dtype=np.int32)\n        self.allowed_obstacle_contact_geom_ids = frozenset(int(value) for value in self.support_geom_ids)\n\n        self.model.geom_group[self.floor_geom_id] = int(config.floor_lidar_group)\n'
+          )
+
+          # 4) Measure every active obstacle contact made by a non-support body geom.
+          marker = '''    def _get_obstacle_contact_count(self) -> int:\n        count = 0\n        for contact_index in range(self.data.ncon):\n            contact = self.data.contact[contact_index]\n            if int(contact.geom1) == self.obstacle_geom_id or int(contact.geom2) == self.obstacle_geom_id:\n                count += 1\n        return count\n\n'''
+          addition = marker + '''    def _measure_body_obstacle_contact(self) -> Tuple[int, float]:\n        contact_count = 0\n        total_force = 0.0\n        contact_force = np.zeros(6, dtype=np.float64)\n        for contact_index in range(self.data.ncon):\n            contact = self.data.contact[contact_index]\n            geom1, geom2 = int(contact.geom1), int(contact.geom2)\n            if geom1 == self.obstacle_geom_id:\n                other_geom = geom2\n            elif geom2 == self.obstacle_geom_id:\n                other_geom = geom1\n            else:\n                continue\n            if other_geom in self.allowed_obstacle_contact_geom_ids or int(contact.efc_address) < 0:\n                continue\n            mujoco.mj_contactForce(self.model, self.data, contact_index, contact_force)\n            contact_count += 1\n            total_force += float(np.linalg.norm(contact_force[:3]))\n        return contact_count, total_force\n\n'''
+          replace_once('sac/env.py', marker, addition)
+
+          # 5) Feed the averaged per-substep body contact into the reward.
+          replace_once(
+              'sac/env.py',
+              '    def _compute_reward(self, state: Dict[str, np.ndarray], stage_rewards: Dict[str, float], mean_joint_torque_sq: float, mean_track_torque_sq: float, old_filtered_action: np.ndarray, older_filtered_action: np.ndarray) -> Tuple[float, Dict[str, float]]:\n',
+              '    def _compute_reward(self, state: Dict[str, np.ndarray], stage_rewards: Dict[str, float], mean_joint_torque_sq: float, mean_track_torque_sq: float, mean_body_obstacle_contact_count: float, mean_body_obstacle_force: float, old_filtered_action: np.ndarray, older_filtered_action: np.ndarray) -> Tuple[float, Dict[str, float]]:\n'
+          )
+
+          replace_once(
+              'sac/env.py',
+              '        front_lift_reward = cfg.front_lift_weight * front_lift_delta\n        reward = cfg.progress_weight * progress_delta + cfg.heading_weight * heading_reward + cfg.forward_speed_weight * forward_speed + front_lift_reward + stage_rewards["front_stage"] + stage_rewards["base_stage"] + stage_rewards["rear_stage"] + stage_rewards["clear_stage"] - cfg.stall_weight * stall_penalty - cfg.reverse_weight * reverse_penalty - cfg.lateral_drift_weight * lateral_penalty - cfg.action_rate_weight * action_rate_penalty - cfg.action_acceleration_weight * action_acceleration_penalty - cfg.joint_pose_weight * joint_pose_penalty - cfg.joint_velocity_weight * joint_velocity_penalty - cfg.joint_torque_weight * joint_torque_penalty - cfg.track_torque_weight * track_torque_penalty - cfg.time_penalty\n',
+              '        front_lift_reward = cfg.front_lift_weight * front_lift_delta\n        body_obstacle_contact_penalty = float(mean_body_obstacle_contact_count)\n        body_obstacle_force_penalty = float(mean_body_obstacle_force / max(cfg.body_obstacle_force_scale, 1e-6))\n        reward = cfg.progress_weight * progress_delta + cfg.heading_weight * heading_reward + cfg.forward_speed_weight * forward_speed + front_lift_reward + stage_rewards["front_stage"] + stage_rewards["base_stage"] + stage_rewards["rear_stage"] + stage_rewards["clear_stage"] - cfg.body_obstacle_contact_weight * body_obstacle_contact_penalty - cfg.body_obstacle_force_weight * body_obstacle_force_penalty - cfg.stall_weight * stall_penalty - cfg.reverse_weight * reverse_penalty - cfg.lateral_drift_weight * lateral_penalty - cfg.action_rate_weight * action_rate_penalty - cfg.action_acceleration_weight * action_acceleration_penalty - cfg.joint_pose_weight * joint_pose_penalty - cfg.joint_velocity_weight * joint_velocity_penalty - cfg.joint_torque_weight * joint_torque_penalty - cfg.track_torque_weight * track_torque_penalty - cfg.time_penalty\n'
+          )
+
+          replace_once(
+              'sac/env.py',
+              '"front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle),',
+              '"front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle), "body_obstacle_contact_penalty": body_obstacle_contact_penalty, "body_obstacle_force_penalty": body_obstacle_force_penalty, "body_obstacle_contact_count": float(mean_body_obstacle_contact_count), "body_obstacle_force": float(mean_body_obstacle_force),'
+          )
+
+          # 6) Accumulate contacts after every MuJoCo substep so short impacts are not missed.
+          replace_once(
+              'sac/env.py',
+              '        joint_torque_sq_sum = 0.0\n        track_torque_sq_sum = 0.0\n        invalid_state = False\n',
+              '        joint_torque_sq_sum = 0.0\n        track_torque_sq_sum = 0.0\n        body_obstacle_contact_count_sum = 0.0\n        body_obstacle_force_sum = 0.0\n        invalid_state = False\n'
+          )
+
+          replace_once(
+              'sac/env.py',
+              '            mujoco.mj_step(self.model, self.data)\n            executed_steps += 1\n',
+              '            mujoco.mj_step(self.model, self.data)\n            body_contact_count, body_contact_force = self._measure_body_obstacle_contact()\n            body_obstacle_contact_count_sum += body_contact_count\n            body_obstacle_force_sum += body_contact_force\n            executed_steps += 1\n'
+          )
+
+          replace_once(
+              'sac/env.py',
+              '        mean_joint_torque_sq = joint_torque_sq_sum / max(executed_steps, 1)\n        mean_track_torque_sq = track_torque_sq_sum / max(executed_steps, 1)\n        reward, reward_terms = self._compute_reward(state, stage_rewards, mean_joint_torque_sq, mean_track_torque_sq, old_filtered_action, older_filtered_action)\n',
+              '        mean_joint_torque_sq = joint_torque_sq_sum / max(executed_steps, 1)\n        mean_track_torque_sq = track_torque_sq_sum / max(executed_steps, 1)\n        mean_body_obstacle_contact_count = body_obstacle_contact_count_sum / max(executed_steps, 1)\n        mean_body_obstacle_force = body_obstacle_force_sum / max(executed_steps, 1)\n        reward, reward_terms = self._compute_reward(state, stage_rewards, mean_joint_torque_sq, mean_track_torque_sq, mean_body_obstacle_contact_count, mean_body_obstacle_force, old_filtered_action, older_filtered_action)\n'
+          )
+
+          # 7) Save the metrics in episode logs for diagnosis.
+          replace_once(
+              'sac/train.py',
+              '                    "mean_reverse_penalty": episode_reward_terms["reverse_penalty"] / max(episode_length, 1),\n',
+              '                    "mean_reverse_penalty": episode_reward_terms["reverse_penalty"] / max(episode_length, 1),\n                    "mean_body_obstacle_contact_count": episode_reward_terms["body_obstacle_contact_count"] / max(episode_length, 1),\n                    "mean_body_obstacle_force": episode_reward_terms["body_obstacle_force"] / max(episode_length, 1),\n'
+          )
+
+          for file_name in ('sac/config.py', 'sac/env.py', 'sac/train.py'):
+              py_compile.compile(file_name, doraise=True)
+          ET.parse('description/mjcf/snake_robot_tracks_slider.xml')
+          PY
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          rm .github/workflows/add-body-obstacle-penalty.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Penalize body contacts with obstacle"
+          git push
