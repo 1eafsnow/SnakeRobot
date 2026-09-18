@@ -17,10 +17,12 @@ class RewardConfig:
     heading_weight: float = 0.10
     forward_speed_weight: float = 0.18
     front_track_stage_reward: float = 2.0
-    base_stage_reward: float = 3.0
-    rear_track_stage_reward: float = 4.0
-    obstacle_clear_reward: float = 8.0
+    base_stage_reward: float = 5.0
+    rear_track_stage_reward: float = 7.0
+    obstacle_clear_reward: float = 10.0
     front_lift_weight: float = 3.0
+    rear_lift_weight: float = 4.0
+    arch_clearance_weight: float = 3.0
     body_obstacle_contact_weight: float = 0.35
     body_obstacle_force_weight: float = 1.25
     body_obstacle_force_scale: float = 40.0
@@ -50,6 +52,7 @@ class EnvConfig:
     lidar_site_name: str = "lidar_site"
     obstacle_geom_name: str = "training_obstacle"
     obstacle_hfield_name: str = "training_obstacle_hfield"
+    base_pad_name: str = "base_link_pad"
     joint_names: Tuple[str, ...] = JOINT_NAMES
     actuator_names: Tuple[str, ...] = ACTUATOR_NAMES
     front_track_pad_names: Tuple[str, ...] = FRONT_TRACK_PAD_NAMES
@@ -101,6 +104,11 @@ class EnvConfig:
     front_lift_approach_distance: float = 0.45
     front_lift_target_margin: float = 0.02
     front_stage_height_margin: float = 0.015
+    rear_lift_approach_distance: float = 0.60
+    rear_lift_target_margin: float = 0.02
+    base_stage_height_margin: float = 0.015
+    rear_stage_height_margin: float = 0.015
+    arch_clearance_margin: float = 0.010
     privileged_obstacle_distance_scale: float = 1.0
     initial_ground_clearance: float = 0.003
     initial_yaw_noise_deg: float = 3.0
