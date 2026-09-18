@@ -1,0 +1,177 @@
+name: Add rear lift arch reward
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/add-rear-lift-arch-reward.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add rear lift and arch shaping
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import py_compile
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_exact(path, old, new, expected=1):
+              text = read(path)
+              count = text.count(old)
+              if count != expected:
+                  raise RuntimeError(f'{path}: expected {expected} matches, found {count}: {old!r}')
+              write(path, text.replace(old, new))
+
+          # ---- config.py ----
+          replace_exact('sac/config.py',
+              '    base_stage_reward: float = 3.0\n    rear_track_stage_reward: float = 4.0\n    obstacle_clear_reward: float = 8.0\n    front_lift_weight: float = 3.0\n',
+              '    base_stage_reward: float = 5.0\n    rear_track_stage_reward: float = 7.0\n    obstacle_clear_reward: float = 10.0\n    front_lift_weight: float = 3.0\n    rear_lift_weight: float = 4.0\n    arch_clearance_weight: float = 3.0\n')
+
+          replace_exact('sac/config.py',
+              '    obstacle_hfield_name: str = "training_obstacle_hfield"\n',
+              '    obstacle_hfield_name: str = "training_obstacle_hfield"\n    base_pad_name: str = "base_link_pad"\n')
+
+          replace_exact('sac/config.py',
+              '    front_stage_height_margin: float = 0.015\n    privileged_obstacle_distance_scale: float = 1.0\n',
+              '    front_stage_height_margin: float = 0.015\n    rear_lift_approach_distance: float = 0.60\n    rear_lift_target_margin: float = 0.02\n    base_stage_height_margin: float = 0.015\n    rear_stage_height_margin: float = 0.015\n    arch_clearance_margin: float = 0.010\n    privileged_obstacle_distance_scale: float = 1.0\n')
+
+          # ---- env.py: base pad id ----
+          replace_exact('sac/env.py',
+              '        self.support_geom_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.support_geom_names], dtype=np.int32)\n        self.allowed_obstacle_contact_geom_ids = frozenset(int(value) for value in self.support_geom_ids)\n',
+              '        self.support_geom_ids = np.array([self._require_id(mujoco.mjtObj.mjOBJ_GEOM, name) for name in config.support_geom_names], dtype=np.int32)\n        self.base_pad_geom_id = self._require_id(mujoco.mjtObj.mjOBJ_GEOM, config.base_pad_name)\n        self.allowed_obstacle_contact_geom_ids = frozenset(int(value) for value in self.support_geom_ids)\n')
+
+          # Track shaping potentials in init + reset.
+          replace_exact('sac/env.py',
+              '        self.previous_front_lift_quality = 0.0\n',
+              '        self.previous_front_lift_quality = 0.0\n        self.previous_rear_lift_quality = 0.0\n        self.previous_arch_quality = 0.0\n',
+              expected=2)
+
+          # Add robust rear-leading-tip and base-pad state helpers.
+          replace_exact('sac/env.py',
+              '    def _front_tip_state(self) -> Tuple[float, float]:\n        front_tip_geom_id = int(self.front_track_pad_ids[0])\n        progress = self._course_progress(self.data.geom_xpos[front_tip_geom_id, :2])\n        return float(progress), self._geom_bottom_z(front_tip_geom_id)\n\n    def _align_support_with_ground(self) -> None:\n',
+              '    def _front_tip_state(self) -> Tuple[float, float]:\n        front_tip_geom_id = int(self.front_track_pad_ids[0])\n        progress = self._course_progress(self.data.geom_xpos[front_tip_geom_id, :2])\n        return float(progress), self._geom_bottom_z(front_tip_geom_id)\n\n    def _rear_tip_state(self) -> Tuple[float, float]:\n        progresses = np.array([self._course_progress(self.data.geom_xpos[int(geom_id), :2]) for geom_id in self.back_track_pad_ids], dtype=np.float64)\n        leading_index = int(np.argmax(progresses))\n        geom_id = int(self.back_track_pad_ids[leading_index])\n        return float(progresses[leading_index]), self._geom_bottom_z(geom_id)\n\n    def _base_pad_state(self) -> Tuple[float, float]:\n        progress = self._course_progress(self.data.geom_xpos[self.base_pad_geom_id, :2])\n        return float(progress), self._geom_bottom_z(self.base_pad_geom_id)\n\n    def _align_support_with_ground(self) -> None:\n')
+
+          # Privileged observation should track the actual base support pad and the leading edge of the rear track.
+          replace_exact('sac/env.py',
+              '        base_progress = self._course_progress(self.data.xpos[self.base_id, :2])\n        rear_progress = self._course_progress(self.data.xpos[self.back_track_body_id, :2])\n',
+              '        base_progress, _ = self._base_pad_state()\n        rear_progress, _ = self._rear_tip_state()\n',
+              expected=1)
+
+          # Replace stage logic with ordered, height-aware stages.
+          path = 'sac/env.py'
+          text = read(path)
+          start = text.index('    def _update_stage_flags(self) -> Dict[str, float]:\n')
+          end = text.index('    def _get_obstacle_contact_count(self) -> int:\n', start)
+          new_stage = '''    def _update_stage_flags(self) -> Dict[str, float]:
+        rewards = {"front_stage": 0.0, "base_stage": 0.0, "rear_stage": 0.0, "clear_stage": 0.0}
+        front_tip_progress, front_tip_z = self._front_tip_state()
+        base_pad_progress, base_pad_z = self._base_pad_state()
+        rear_tip_progress, rear_tip_z = self._rear_tip_state()
+        rear_body_progress = self._course_progress(self.data.xpos[self.back_track_body_id, :2])
+
+        front_stage_min_z = self.obstacle_height - self.cfg.front_stage_height_margin
+        base_stage_min_z = self.obstacle_height - self.cfg.base_stage_height_margin
+        rear_stage_min_z = self.obstacle_height - self.cfg.rear_stage_height_margin
+
+        if not self.stage_front_track and front_tip_progress >= self.obstacle_top_start_progress and front_tip_z >= front_stage_min_z:
+            self.stage_front_track = True
+            rewards["front_stage"] = self.reward_cfg.front_track_stage_reward
+
+        if self.stage_front_track and not self.stage_base and base_pad_progress >= self.obstacle_top_start_progress and base_pad_z >= base_stage_min_z:
+            self.stage_base = True
+            rewards["base_stage"] = self.reward_cfg.base_stage_reward
+
+        if self.stage_base and not self.stage_back_track and rear_tip_progress >= self.obstacle_top_start_progress and rear_tip_z >= rear_stage_min_z:
+            self.stage_back_track = True
+            rewards["rear_stage"] = self.reward_cfg.rear_track_stage_reward
+
+        if self.stage_back_track and not self.obstacle_cleared and rear_body_progress >= self.obstacle_end_progress + self.cfg.obstacle_clear_margin:
+            self.obstacle_cleared = True
+            rewards["clear_stage"] = self.reward_cfg.obstacle_clear_reward
+
+        return rewards
+
+'''
+          write(path, text[:start] + new_stage + text[end:])
+
+          # Insert rear-lift + arch potential shaping after front lift shaping.
+          replace_exact('sac/env.py',
+              '        front_lift_reward = cfg.front_lift_weight * front_lift_delta\n        body_obstacle_contact_penalty = float(mean_body_obstacle_contact_count)\n',
+              '''        front_lift_reward = cfg.front_lift_weight * front_lift_delta
+
+        rear_tip_progress, rear_tip_z = self._rear_tip_state()
+        rear_distance_to_obstacle = self.obstacle_start_progress - rear_tip_progress
+        rear_lift_window = self.stage_front_track and not self.stage_back_track and -0.05 <= rear_distance_to_obstacle <= self.cfg.rear_lift_approach_distance
+        rear_lift_target_z = self.obstacle_height + self.cfg.rear_lift_target_margin
+        if rear_lift_window:
+            rear_lift_denominator = max(rear_lift_target_z - self.cfg.initial_ground_clearance, 1e-6)
+            rear_lift_quality = float(np.clip((rear_tip_z - self.cfg.initial_ground_clearance) / rear_lift_denominator, 0.0, 1.0))
+            rear_lift_delta = rear_lift_quality - self.previous_rear_lift_quality
+            self.previous_rear_lift_quality = rear_lift_quality
+        else:
+            rear_lift_quality = 0.0
+            rear_lift_delta = 0.0
+            self.previous_rear_lift_quality = 0.0
+        rear_lift_reward = cfg.rear_lift_weight * rear_lift_delta
+
+        base_pad_progress, base_pad_z = self._base_pad_state()
+        arch_window = self.stage_front_track and not self.stage_back_track and self.obstacle_start_progress - 0.20 <= base_pad_progress <= self.obstacle_end_progress + 0.15
+        arch_target_z = max(self.obstacle_height - self.cfg.arch_clearance_margin, self.cfg.initial_ground_clearance)
+        if arch_window:
+            arch_denominator = max(arch_target_z - self.cfg.initial_ground_clearance, 1e-6)
+            arch_quality = float(np.clip((base_pad_z - self.cfg.initial_ground_clearance) / arch_denominator, 0.0, 1.0))
+            arch_delta = arch_quality - self.previous_arch_quality
+            self.previous_arch_quality = arch_quality
+        else:
+            arch_quality = 0.0
+            arch_delta = 0.0
+            self.previous_arch_quality = 0.0
+        arch_clearance_reward = cfg.arch_clearance_weight * arch_delta
+
+        body_obstacle_contact_penalty = float(mean_body_obstacle_contact_count)
+''')
+
+          replace_exact('sac/env.py',
+              ' + cfg.forward_speed_weight * forward_speed + front_lift_reward + stage_rewards["front_stage"]',
+              ' + cfg.forward_speed_weight * forward_speed + front_lift_reward + rear_lift_reward + arch_clearance_reward + stage_rewards["front_stage"]')
+
+          replace_exact('sac/env.py',
+              '"front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle),',
+              '"front_lift_reward": float(front_lift_reward), "front_lift_quality": float(front_lift_quality), "front_tip_z": float(front_tip_z), "distance_to_obstacle": float(distance_to_obstacle), "rear_lift_reward": float(rear_lift_reward), "rear_lift_quality": float(rear_lift_quality), "rear_tip_z": float(rear_tip_z), "rear_distance_to_obstacle": float(rear_distance_to_obstacle), "arch_clearance_reward": float(arch_clearance_reward), "arch_quality": float(arch_quality), "base_pad_z": float(base_pad_z),')
+
+          # ---- train.py: expose the new shaping terms in episode logs ----
+          replace_exact('sac/train.py',
+              '                    "mean_reverse_penalty": episode_reward_terms["reverse_penalty"] / max(episode_length, 1),\n                    "mean_body_obstacle_contact_count": episode_reward_terms["body_obstacle_contact_count"] / max(episode_length, 1),\n',
+              '                    "mean_reverse_penalty": episode_reward_terms["reverse_penalty"] / max(episode_length, 1),\n                    "mean_front_lift_reward": episode_reward_terms["front_lift_reward"] / max(episode_length, 1),\n                    "mean_rear_lift_reward": episode_reward_terms["rear_lift_reward"] / max(episode_length, 1),\n                    "mean_arch_clearance_reward": episode_reward_terms["arch_clearance_reward"] / max(episode_length, 1),\n                    "mean_body_obstacle_contact_count": episode_reward_terms["body_obstacle_contact_count"] / max(episode_length, 1),\n')
+
+          for file_name in ('sac/config.py', 'sac/env.py', 'sac/train.py'):
+              py_compile.compile(file_name, doraise=True)
+
+          Path('.github/workflows/add-rear-lift-arch-reward.yml').unlink()
+          PY
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Teach rear lift and arch obstacle traversal"
+          git push
