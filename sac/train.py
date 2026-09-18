@@ -199,6 +199,9 @@ def main() -> None:
                     "mean_progress_reward": episode_reward_terms["progress"] / max(episode_length, 1),
                     "mean_stall_penalty": episode_reward_terms["stall_penalty"] / max(episode_length, 1),
                     "mean_reverse_penalty": episode_reward_terms["reverse_penalty"] / max(episode_length, 1),
+                    "mean_front_lift_reward": episode_reward_terms["front_lift_reward"] / max(episode_length, 1),
+                    "mean_rear_lift_reward": episode_reward_terms["rear_lift_reward"] / max(episode_length, 1),
+                    "mean_arch_clearance_reward": episode_reward_terms["arch_clearance_reward"] / max(episode_length, 1),
                     "mean_body_obstacle_contact_count": episode_reward_terms["body_obstacle_contact_count"] / max(episode_length, 1),
                     "mean_body_obstacle_force": episode_reward_terms["body_obstacle_force"] / max(episode_length, 1),
                 }
