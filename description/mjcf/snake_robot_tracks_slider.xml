@@ -41,9 +41,8 @@
           <geom name="front_track_pad1_geom" class="track_pad" pos="-0.50 0 -0.005" size="0.075 0.060 0.010"/>
           <geom name="front_track_pad2_geom" class="track_pad" pos="-0.35 0 -0.005" size="0.075 0.060 0.010"/>
           <geom name="front_track_pad3_geom" class="track_pad" pos="-0.20 0 -0.005" size="0.075 0.060 0.010"/>
-          <!-- End-face pads approximate the belt wrapping around the sprockets. Their local +X axes follow the belt tangent: down at the front, up at the rear. -->
+          <!-- Outer head pad approximates the belt wrapping around the front sprocket; local +X points down along the belt tangent. -->
           <geom name="front_track_front_pad_geom" class="track_pad" pos="-0.610 0 0.060" size="0.055 0.060 0.010" quat="0.707107 0 0.707107 0"/>
-          <geom name="front_track_rear_pad_geom" class="track_pad" pos="-0.090 0 0.060" size="0.055 0.060 0.010" quat="0.707107 0 -0.707107 0"/>
 
           <body name="lidar" pos="-0.55 0.0 0.17">
             <site name="lidar_site" type="box" pos="0 0 0" quat="0 0 0 1" size="0.02 0.04 0.03" rgba="1 0 0 0.25"/>
@@ -66,8 +65,7 @@
           <geom name="back_track_pad1_geom" class="track_pad" pos="0.50 0 -0.005" size="0.075 0.060 0.010"/>
           <geom name="back_track_pad2_geom" class="track_pad" pos="0.35 0 -0.005" size="0.075 0.060 0.010"/>
           <geom name="back_track_pad3_geom" class="track_pad" pos="0.20 0 -0.005" size="0.075 0.060 0.010"/>
-          <!-- Same belt loop convention as the front module: lower-X end moves down, higher-X end moves up. -->
-          <geom name="back_track_front_pad_geom" class="track_pad" pos="0.090 0 0.060" size="0.055 0.060 0.010" quat="0.707107 0 0.707107 0"/>
+          <!-- Outer tail pad approximates the belt wrapping around the rear sprocket; local +X points up along the belt tangent. -->
           <geom name="back_track_rear_pad_geom" class="track_pad" pos="0.610 0 0.060" size="0.055 0.060 0.010" quat="0.707107 0 -0.707107 0"/>
         </body>
       </body>
@@ -93,11 +91,9 @@
     <pair name="front_track_ground_2" geom1="floor" geom2="front_track_pad2_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
     <pair name="front_track_ground_3" geom1="floor" geom2="front_track_pad3_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
     <pair name="front_track_ground_front_end" geom1="floor" geom2="front_track_front_pad_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
-    <pair name="front_track_ground_rear_end" geom1="floor" geom2="front_track_rear_pad_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
     <pair name="back_track_ground_1" geom1="floor" geom2="back_track_pad1_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
     <pair name="back_track_ground_2" geom1="floor" geom2="back_track_pad2_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
     <pair name="back_track_ground_3" geom1="floor" geom2="back_track_pad3_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
-    <pair name="back_track_ground_front_end" geom1="floor" geom2="back_track_front_pad_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
     <pair name="back_track_ground_rear_end" geom1="floor" geom2="back_track_rear_pad_geom" condim="3" friction="1.5 1.0 0 0 0" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2"/>
   </contact>
 
