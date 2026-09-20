@@ -160,8 +160,8 @@ class SnakeTraverseEnv(gym.Env):
             raise ValueError("frame_skip and max_episode_steps must be positive")
         if len(self.cfg.joint_names) != 4 or len(self.cfg.actuator_names) != 4:
             raise ValueError("Snake slider model requires exactly four joints and four joint actuators")
-        if len(self.cfg.front_track_pad_names) != 5 or len(self.cfg.back_track_pad_names) != 5:
-            raise ValueError("Each virtual track requires exactly five surfacevel pads: three bottom pads plus front/rear vertical pads")
+        if len(self.cfg.front_track_pad_names) != 4 or len(self.cfg.back_track_pad_names) != 4:
+            raise ValueError("Each virtual track requires exactly four surfacevel pads: three bottom pads plus one outer vertical end pad")
         if self.cfg.hfield_rows < 2 or self.cfg.hfield_cols < 4:
             raise ValueError("Heightfield resolution is too small")
         if self.cfg.obstacle_min_height <= 0.0 or self.cfg.obstacle_height_limit > self.cfg.obstacle_max_supported_height:
