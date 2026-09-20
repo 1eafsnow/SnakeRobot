@@ -6,8 +6,8 @@ from typing import Optional, Tuple
 PROJECT_DIR = Path(__file__).resolve().parent.parent / "description"
 JOINT_NAMES = ("front_joint1", "front_joint2", "back_joint1", "back_joint2")
 ACTUATOR_NAMES = ("f1_motor", "f2_motor", "b1_motor", "b2_motor")
-FRONT_TRACK_PAD_NAMES = ("front_track_pad1_geom", "front_track_pad2_geom", "front_track_pad3_geom")
-BACK_TRACK_PAD_NAMES = ("back_track_pad1_geom", "back_track_pad2_geom", "back_track_pad3_geom")
+FRONT_TRACK_PAD_NAMES = ("front_track_pad1_geom", "front_track_pad2_geom", "front_track_pad3_geom", "front_track_front_pad_geom", "front_track_rear_pad_geom")
+BACK_TRACK_PAD_NAMES = ("back_track_pad1_geom", "back_track_pad2_geom", "back_track_pad3_geom", "back_track_front_pad_geom", "back_track_rear_pad_geom")
 SUPPORT_GEOM_NAMES = FRONT_TRACK_PAD_NAMES + BACK_TRACK_PAD_NAMES + ("base_link_pad",)
 
 
