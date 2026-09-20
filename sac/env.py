@@ -129,7 +129,7 @@ class SnakeTraverseEnv(gym.Env):
         self.previous_arch_quality = 0.0
 
         lidar_dim = config.lidar_rows * config.lidar_cols
-        self.observation_dim = lidar_dim + 40
+        self.observation_dim = lidar_dim + 30
         self._last_valid_obs = np.zeros(self.observation_dim, dtype=np.float32)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(self.action_dim,), dtype=np.float32)
         self.observation_space = spaces.Box(low=-10.0, high=10.0, shape=(self.observation_dim,), dtype=np.float32)
@@ -275,30 +275,10 @@ class SnakeTraverseEnv(gym.Env):
         if force or self.step_count % self.lidar_interval_steps == 0:
             self._scan_lidar()
 
-    def _get_privileged_obstacle_obs(self) -> np.ndarray:
-        front_progress, _ = self._front_tip_state()
-        base_progress, _ = self._base_pad_state()
-        rear_progress, _ = self._rear_tip_state()
-        distance_scale = max(float(self.cfg.privileged_obstacle_distance_scale), 1e-6)
-        height_scale = max(float(self.cfg.obstacle_max_supported_height), 1e-6)
-        return np.array([
-            (front_progress - self.obstacle_start_progress) / distance_scale,
-            (front_progress - self.obstacle_end_progress) / distance_scale,
-            (base_progress - self.obstacle_start_progress) / distance_scale,
-            (base_progress - self.obstacle_end_progress) / distance_scale,
-            (rear_progress - self.obstacle_start_progress) / distance_scale,
-            (rear_progress - self.obstacle_end_progress) / distance_scale,
-            self.obstacle_height / height_scale,
-            float(self.stage_front_track),
-            float(self.stage_base),
-            float(self.stage_back_track),
-        ], dtype=np.float64)
-
     def _get_obs(self, state: Optional[Dict[str, np.ndarray]] = None) -> np.ndarray:
         state = self._get_robot_state() if state is None else state
         heading_error = float(state["heading_error"])
-        privileged_obstacle_obs = self._get_privileged_obstacle_obs()
-        obs = np.concatenate([self.lidar_scan.reshape(-1).astype(np.float64) / self.cfg.lidar_max_range, state["projected_gravity"], state["base_ang_vel"] / self.cfg.angular_velocity_scale, state["base_lin_vel"] / self.cfg.linear_velocity_scale, state["goal_local"] / self.cfg.goal_position_scale, np.array([float(state["goal_distance"]) / self.cfg.goal_position_scale]), np.array([np.sin(heading_error), np.cos(heading_error)]), (state["q"] - self.q_nominal) / np.maximum(self.joint_action_scale, 0.20), state["dq"] / self.cfg.joint_velocity_scale, state["track_omega"] / self.cfg.track_speed_limit, self.filtered_action, privileged_obstacle_obs])
+        obs = np.concatenate([self.lidar_scan.reshape(-1).astype(np.float64) / self.cfg.lidar_max_range, state["projected_gravity"], state["base_ang_vel"] / self.cfg.angular_velocity_scale, state["base_lin_vel"] / self.cfg.linear_velocity_scale, state["goal_local"] / self.cfg.goal_position_scale, np.array([float(state["goal_distance"]) / self.cfg.goal_position_scale]), np.array([np.sin(heading_error), np.cos(heading_error)]), (state["q"] - self.q_nominal) / np.maximum(self.joint_action_scale, 0.20), state["dq"] / self.cfg.joint_velocity_scale, state["track_omega"] / self.cfg.track_speed_limit, self.filtered_action])
         if obs.shape != (self.observation_dim,) or not np.isfinite(obs).all():
             raise FloatingPointError(f"Observation is invalid: expected {self.observation_dim}, got {obs.shape}")
         return np.clip(obs, -10.0, 10.0).astype(np.float32)
