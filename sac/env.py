@@ -160,8 +160,8 @@ class SnakeTraverseEnv(gym.Env):
             raise ValueError("frame_skip and max_episode_steps must be positive")
         if len(self.cfg.joint_names) != 4 or len(self.cfg.actuator_names) != 4:
             raise ValueError("Snake slider model requires exactly four joints and four joint actuators")
-        if len(self.cfg.front_track_pad_names) != 3 or len(self.cfg.back_track_pad_names) != 3:
-            raise ValueError("Each virtual track requires exactly three surfacevel pads")
+        if len(self.cfg.front_track_pad_names) != 5 or len(self.cfg.back_track_pad_names) != 5:
+            raise ValueError("Each virtual track requires exactly five surfacevel pads: three bottom pads plus front/rear vertical pads")
         if self.cfg.hfield_rows < 2 or self.cfg.hfield_cols < 4:
             raise ValueError("Heightfield resolution is too small")
         if self.cfg.obstacle_min_height <= 0.0 or self.cfg.obstacle_height_limit > self.cfg.obstacle_max_supported_height:
@@ -346,9 +346,10 @@ class SnakeTraverseEnv(gym.Env):
         return float(self.data.geom_xpos[geom_id, 2] - half_extent_z)
 
     def _front_tip_state(self) -> Tuple[float, float]:
-        front_tip_geom_id = int(self.front_track_pad_ids[0])
-        progress = self._course_progress(self.data.geom_xpos[front_tip_geom_id, :2])
-        return float(progress), self._geom_bottom_z(front_tip_geom_id)
+        progresses = np.array([self._course_progress(self.data.geom_xpos[int(geom_id), :2]) for geom_id in self.front_track_pad_ids], dtype=np.float64)
+        leading_index = int(np.argmax(progresses))
+        geom_id = int(self.front_track_pad_ids[leading_index])
+        return float(progresses[leading_index]), self._geom_bottom_z(geom_id)
 
     def _rear_tip_state(self) -> Tuple[float, float]:
         progresses = np.array([self._course_progress(self.data.geom_xpos[int(geom_id), :2]) for geom_id in self.back_track_pad_ids], dtype=np.float64)
