@@ -43,7 +43,7 @@ class RewardConfig:
 
 @dataclass(frozen=True)
 class EnvConfig:
-    xml_path: Path = PROJECT_DIR / "mjcf" / "scene_slider.xml"
+    xml_path: Path = PROJECT_DIR / "mjcf" / "scene.xml"
     base_name: str = "base_link"
     front_track_body_name: str = "front_track"
     back_track_body_name: str = "back_track"

@@ -159,7 +159,7 @@ class SnakeTraverseEnv(gym.Env):
         if self.cfg.frame_skip < 1 or self.cfg.max_episode_steps < 1:
             raise ValueError("frame_skip and max_episode_steps must be positive")
         if len(self.cfg.joint_names) != 4 or len(self.cfg.actuator_names) != 4:
-            raise ValueError("Snake slider model requires exactly four joints and four joint actuators")
+            raise ValueError("Snake model requires exactly four joints and four joint actuators")
         if len(self.cfg.front_track_pad_names) != 4 or len(self.cfg.back_track_pad_names) != 4:
             raise ValueError("Each virtual track requires exactly four surfacevel pads: three bottom pads plus one outer vertical end pad")
         if self.cfg.hfield_rows < 2 or self.cfg.hfield_cols < 4:
@@ -187,7 +187,7 @@ class SnakeTraverseEnv(gym.Env):
         hfield_xml = f'\n    <hfield name="{self.cfg.obstacle_hfield_name}" nrow="{self.cfg.hfield_rows}" ncol="{self.cfg.hfield_cols}" size="{self.cfg.hfield_radius_x} {self.cfg.hfield_radius_y} {elevation_z} {self.cfg.hfield_base_depth}"/>\n'
         obstacle_xml = f'\n    <geom name="{self.cfg.obstacle_geom_name}" type="hfield" hfield="{self.cfg.obstacle_hfield_name}" pos="{self.cfg.hfield_center_x} {self.cfg.hfield_center_y} {self.cfg.hfield_base_z}" rgba="0.72 0.75 0.86 1" friction="1.3 0.005 0.0001" condim="3" contype="3" conaffinity="3" group="{self.cfg.lidar_group}"/>\n'
         if "</asset>" not in xml or "</worldbody>" not in xml:
-            raise RuntimeError("scene_slider.xml must contain asset and worldbody sections")
+            raise RuntimeError("scene.xml must contain asset and worldbody sections")
         xml = xml.replace("</asset>", hfield_xml + "  </asset>", 1)
         xml = xml.replace("</worldbody>", obstacle_xml + "  </worldbody>", 1)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", prefix=".snake_training_", dir=xml_path.parent, encoding="utf-8", delete=False) as file:

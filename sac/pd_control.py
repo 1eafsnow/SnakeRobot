@@ -15,9 +15,9 @@ import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 MODEL_CANDIDATES = [
-    SCRIPT_DIR.parent / "description" / "mjcf" / "scene_slider.xml",
-    SCRIPT_DIR / "mjcf" / "scene_slider.xml",
-    Path("mjcf/scene_slider.xml"),
+    SCRIPT_DIR.parent / "description" / "mjcf" / "scene.xml",
+    SCRIPT_DIR / "mjcf" / "scene.xml",
+    Path("mjcf/scene.xml"),
 ]
 
 CONTROL_CONFIGS = [

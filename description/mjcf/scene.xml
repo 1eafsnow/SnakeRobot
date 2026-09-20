@@ -13,5 +13,5 @@
     <geom name="floor" type="plane" pos="0 0 0" size="5 5 0.1" material="grid_mat" friction="0 0 0" condim="1" contype="1" conaffinity="1" group="0"/>
   </worldbody>
 
-  <include file="snake_robot_tracks_slider.xml"/>
+  <include file="snake_robot_tracks.xml"/>
 </mujoco>
